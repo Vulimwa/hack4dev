@@ -1,0 +1,22 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── Generated data (rebuilt automatically by the notebooks) ──────────────────
+# Per-city cubes and feature tables cached by Notebook 5 (~350 MB)
+data/cache/
+# Preprocessed arrays written by Notebook 3 (~50 MB)
+data/preprocessed/
+
+# ── Editor / OS ───────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
