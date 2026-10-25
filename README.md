@@ -1,213 +1,98 @@
-# 🏗️ hack4dev — Building Age Classification from Satellite Imagery (DSRH2026)
+# Building Age Classification from Satellite Imagery
 
-We classify the **construction age of buildings** from 40 years of Landsat satellite data. A model is trained on **Madrid** and then adapted to **Amsterdam** using only a handful of labelled pixels per class.
+**DSRH2026 hackathon project**
 
-This is a **transfer learning** problem. The real goal is a model that can be deployed in *any* city with minimal local labelling.
+This project classifies the age of buildings from Landsat time-series data. We train on labelled pixels from Madrid, then transfer the learned model to Amsterdam using a limited number of Amsterdam labels per class. The final recommended solution is in **Notebook 8**.
 
----
+## At a glance
 
-## 📌 The challenge in one minute
-
-| | |
+| Item | Description |
 |---|---|
-| **Input** | A 30 m × 30 m Landsat pixel containing buildings: 6 spectral bands (Blue, Green, Red, NIR, SWIR1, SWIR2), observed every summer from 1984 to 2025 |
-| **Output** | The majority building age class of the pixel (1–4) |
-| **Training city** | Madrid: 76,263 labelled pixels |
-| **Target city** | Amsterdam: 25,992 pixels; the model may use only **5, 25, 50, 100 or 200 labels per class** |
-| **Metric** | Macro-F1 |
+| Task | Classify a building-containing 30 m pixel into one of four construction-age classes |
+| Input | Six Landsat spectral bands observed over time |
+| Source city | Madrid |
+| Target city | Amsterdam |
+| Few-shot budgets | 5, 25, 50, 100, or 200 labelled Amsterdam pixels per class |
+| Evaluation metric | Macro-F1 |
 
-### Age classes
+The class boundaries are city-specific to reflect local construction history. The notebooks define the exact labels and evaluation protocol.
 
-| Class | Madrid | Amsterdam | Why the boundary |
-|:-:|:-:|:-:|---|
-| 1 | before 1960 | before 1945 | City-specific historical construction event |
-| 2 | 1960 – 1984 | 1945 – 1984 | Up to the start of the Landsat record |
-| 3 | 1984 – 2004 | 1984 – 2004 | First 20 years of the satellite record |
-| 4 | 2004 – 2024 | 2004 – 2024 | Second 20 years of the satellite record |
+## Approach
 
-### Prizes
+The final notebook investigates why a model trained in Madrid does not transfer directly to Amsterdam, then develops features and models for the cross-city setting. It compares candidate Madrid-trained models using spatial validation and evaluates Amsterdam adaptation at each label budget. The experiments include temporal and neighbourhood features, ensembles, spatial smoothing, and self-training. Notebook 8 presents the end-to-end workflow and its evaluation.
 
-| Prize | Based on |
+## Which notebook should I use?
+
+**Start with Notebook 8 for the final recommended model.** It is the self-contained end-to-end submission: it loads the two data files, explores the city-to-city differences, builds transfer-oriented features, compares candidate models, evaluates few-shot adaptation, and provides the final model and reusable transfer workflow. It does not require running Notebooks 1–7 first or using generated feature caches.
+
+| Notebook | Purpose |
 |---|---|
-| Best average F1 | Mean F1 over all five Amsterdam models |
-| Best peak F1 | Highest F1 of any single Amsterdam model |
-| Best low-data F1 | F1 of the **25-per-class** model only |
-| Best originality | Abstract + presentation |
+| [1 - Introduction](1-Introduction%20%28DSRH2026%29.ipynb) | Organizers' challenge introduction, task, and rules |
+| [2 - Reading Data](2-Reading_Data%20%28DSRH2026%29.ipynb) | Organizers' starter data exploration |
+| [3 - Preprocessing](3-Preprocessing%20%28DSRH2026%29.ipynb) | Organizers' preprocessing baseline |
+| [4 - Modelling](4-Modelling%20%28DSRH2026%29.ipynb) | Organizers' baseline model and evaluation |
+| [5 - Baseline Model Training](5-Baseline%20Model%20Training%28Our%20first%20model%29%28DSRH2026%29.ipynb) | Our first transfer-learning model |
+| [6 - Model Zoo and Transfer Learning](6-Model_Zoo_Transfer%20Learning%282nd%20model%20training%29%28DSRH2026%29.ipynb) | Our comparison of candidate Stage 1 model families |
+| [7 - Ensemble, Spatial Smoothing, and Self-Training](7-Ensemble%2BSpatial%20Smoothing%20%2B%20Self%20Training%20%28Third%20Model%20Training%29%28DSRH2026%29.ipynb) | Our third-model experiments and improvements |
+| [8 - Final Budget Transfer Learning Model](8-Final_Model_Budget%20Transfer%20Learning%20Model%20%28DSRH2026%29.ipynb) | **Our final recommended, self-contained pipeline** |
 
----
+[METRIC_LEARNING_APPROACH.md](METRIC_LEARNING_APPROACH.md) is an organizers' suggested metric-learning direction. It is background material, not the approach used by our final model.
 
-## 🏆 Our results
+## Data
 
-| Setting | Baseline (Notebook 4) | **Ours (Notebook 5)** |
-|---|:-:|:-:|
-| Madrid CV, random folds | 0.618 | **0.716 ± 0.005** |
-| Madrid CV, 1 km spatial blocks *(stricter; see below)* | — | **0.647 ± 0.009** |
-| Amsterdam zero-shot (no Amsterdam labels) | 0.343 | **0.530** |
-| Amsterdam, 5 labels / class | 0.544 | **0.557 ± 0.012** |
-| Amsterdam, 25 labels / class *(low-data prize)* | 0.599 | **0.650 ± 0.008** |
-| Amsterdam, 50 labels / class | 0.608 | **0.680 ± 0.010** |
-| Amsterdam, 100 labels / class | 0.613 | **0.714 ± 0.010** |
-| Amsterdam, 200 labels / class *(peak prize)* | 0.615 | **0.731 ± 0.006** |
-| **Average over the five Amsterdam models** | 0.596 | **0.666** |
+The repository expects these files in `data/`:
 
-Amsterdam scores are the mean ± std over 10 random draws of the labelled pixels (fixed seed). Each draw is scored on all remaining Amsterdam pixels.
+- `madrid_train.parquet` - labelled source-city data
+- `amsterdam_data.parquet` - target-city data used for few-shot adaptation and evaluation
 
----
-
-## 💡 Our approach
-
-### 1. Diagnose before fixing
-
-The baseline Madrid model collapses on Amsterdam and predicts class 2 for almost everything. Our EDA shows why:
-
-* **Amsterdam is darker in every band.** Even its newest buildings are darker than Madrid's oldest. A model that thresholds absolute reflectance puts every Amsterdam pixel in the same corner of feature space.
-* **The age ordering inside each city is identical**: newer buildings are brighter, class 1 < 2 < 3 < 4. *Relative* brightness transfers between cities; absolute brightness does not.
-* **The whole city brightens and darkens from year to year** (atmosphere, sensor generation, acquisition date). That noise is shared by every pixel and says nothing about building age.
-* **Building age is strongly spatially clustered.** A pixel shares its neighbour's class 76% (Madrid) and 87% (Amsterdam) of the time, against about 27% by chance.
-
-### 2. Transfer-oriented features (166 per pixel)
-
-| Step | What | Why it transfers |
-|---|---|---|
-| Median of valid observations | Uses all 3 summer scenes instead of only the first | Less noise |
-| **City-year anomaly** | Each value becomes a robust z-score against all pixels of the *same city in the same year* | Removes city offsets (climate, materials) and year noise (atmosphere, sensor) in one step |
-| Temporal statistics | Mean, std, slope, 5 period means, year-on-year change | Captures ageing and change over 42 years |
-| **Change-point detection** | Unsupervised two-segment fit gives the year and size of the biggest spectral shift | Detects the *construction event*; the detected year tracks the true construction year (r ≈ 0.5) in **both** cities without using labels |
-| **Neighbourhood context** | Feature means over 150 m and 330 m windows, plus building density | Neighbourhoods are built in the same era, in every city |
-| Per-city robust scaling | Each feature scaled by its own city's median and IQR | Uses only unlabelled imagery, which is always available for a new city |
-
-### 3. Two-stage transfer model
-
-| Stage | Model | Trained on |
-|---|---|---|
-| **1a** | LightGBM age-class classifier | All of Madrid |
-| **1b** | LightGBM construction-year regressor (a city-agnostic "timeline") | All of Madrid |
-| **2** | **Continued boosting:** start from the Madrid classifier's scores and add a few small corrective trees fitted to the Amsterdam samples | *n* Amsterdam labels per class |
-
-The baseline's few-shot step (nearest class mean) **never uses the Madrid model**. Our Stage 2 keeps everything Madrid learned and only learns Amsterdam-specific corrections:
-
-* With 5 labels per class it adds ~10 tiny trees, so Madrid knowledge dominates.
-* With 200 per class it adds ~150 trees, so it can adapt more.
-
-### Things we tried that did not win (kept in Notebook 5 for comparison)
-
-| Method | 25 / class | Takeaway |
-|---|:-:|---|
-| Prototype (Notebook 4's method) on our features | 0.572 | Better features help, but it ignores the Madrid model |
-| **Timeline only**: predict a year with 1b, then learn Amsterdam cut-points on that single number | 0.512 | One number throws away too much information to separate four classes |
-| Calibration: logistic regression on Madrid class scores + predicted year | 0.632 | Good, but cannot correct the features themselves |
-| **Continued boosting (final)** | **0.650** | Best at every *n* |
-
----
-
-## 📁 Repository structure
-
-```
-hack4dev/
-├── 1-Introduction (DSRH2026).ipynb      # Challenge rules, data description, scoring (organisers)
-├── 2-Reading_Data (DSRH2026).ipynb      # Starter EDA (organisers)
-├── 3-Preprocessing (DSRH2026).ipynb     # Baseline 60-feature pipeline (organisers)
-├── 4-Modelling (DSRH2026).ipynb         # Baseline: Random Forest + prototype transfer (organisers)
-├── 5-Our_Model (DSRH2026).ipynb         # ⭐ OUR SOLUTION: further EDA, features, two-stage transfer
-├── METRIC_LEARNING_APPROACH.md          # Organisers' note on the metric-learning baseline
-├── data/
-│   ├── madrid_train.parquet             # Madrid training data (Git LFS)
-│   ├── amsterdam_data.parquet           # Amsterdam transfer data (Git LFS)
-│   └── cache/                           # Auto-generated by Notebook 5 (git-ignored)
-├── models/
-│   ├── stage1_madrid_classifier.txt     # Stage 1a: Madrid age-class model (LightGBM)
-│   ├── stage1_madrid_year_regressor.txt # Stage 1b: Madrid construction-year model
-│   └── stage2_amsterdam_n{5..200}.txt   # Stage 2: Amsterdam adaptations, one per sample size
-├── h4d.py                               # Helper module used by the experiment scripts
-├── scratch/                             # Experiment scripts + generator for Notebook 5
-├── requirements.txt
-└── README.md
-```
-
----
-
-## ⚙️ Setup
-
-**1. Clone and pull the data.** The parquet files are stored with Git LFS:
+The parquet files are stored with Git LFS. If they are not present after cloning, install Git LFS and pull them:
 
 ```bash
-git clone <repo-url>
-cd hack4dev
 git lfs install
 git lfs pull
 ```
 
-**2. Install dependencies** (Python 3.10+):
+Generated caches, trained model files, and prediction results are not committed. The `data/cache/`, `models/`, and `results/` folders are kept with placeholders and will be populated as needed when the notebooks run. Notebook checkpoints and VS Code settings are also ignored.
+
+## Setup and run
+
+Use Python 3.10 or newer. From the repository root:
 
 ```bash
-pip install -r requirements.txt
+python -m venv .venv
 ```
 
-**3. Run the notebooks** from the repository root. Paths are resolved automatically, so `data/` is found whether you run from the root or a subfolder.
+Activate the environment, then install the project dependencies and start Jupyter:
 
-| To… | Run | Time* |
-|---|---|---|
-| See our solution | **Notebook 5 only.** It is self-contained and does not need Notebooks 2–4 | ~25 min first run, faster afterwards (cached) |
-| Reproduce the baseline | Notebook 3, then Notebook 4 | ~10 min |
+```bash
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
 
-*On a 4-core laptop with 8 GB RAM.
-
-### ⚠️ Memory tips (8 GB machines)
-
-* The raw parquet files expand to several GB in pandas. Notebook 5 loads only the numeric columns it needs into compact NumPy arrays (~80 MB for Madrid).
-* **Shut down other notebook kernels** before running Notebook 5. Kernels from Notebooks 2–4 can each hold 4–6 GB.
-* Lower `N_JOBS` in the config cell if your machine has fewer cores.
-
----
-
-## 🔁 Reproducibility & configuration
-
-Everything in Notebook 5 is controlled from its config cell:
-
-```python
-SEED      = 42                       # fixes every random draw
-SHOTS     = [5, 25, 50, 100, 200]    # labelled target-city pixels per class
-N_TRIALS  = 10                       # random support draws per shot size
-N_FOLDS   = 5                        # Madrid cross-validation folds
-N_REPEATS = 1                        # set to 5 to match Notebook 4's 5x5 CV exactly (slower)
-N_JOBS    = 4                        # CPU threads
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+jupyter lab
 ```
 
-### Adapting to a new city (submission deliverable)
+Open Notebook 8 and run its cells from top to bottom to reproduce the final workflow and evaluation. It reads the parquet files directly and can create reusable intermediate caches and result files during a run. CatBoost and PyTorch are optional dependencies for optional model comparisons; the core requirements are listed in `requirements.txt`.
 
-Notebook 5 (section 5.14) provides a parameterised transfer function:
+Notebooks 5–7 document our earlier model iterations. Notebook 6 depends on features and models from Notebook 5; Notebook 7 builds on earlier experiments. They are not prerequisites for Notebook 8.
 
-```python
-booster, f1 = adapt_to_city(n=25)    # n = labelled pixels per class; fixed seed by default
+## Repository contents
+
+```text
+.
+├── 1-Introduction (DSRH2026).ipynb
+├── 2-Reading_Data (DSRH2026).ipynb
+├── 3-Preprocessing (DSRH2026).ipynb
+├── 4-Modelling (DSRH2026).ipynb
+├── 5-Baseline Model Training(Our first model)(DSRH2026).ipynb
+├── 6-Model_Zoo_Transfer Learning(2nd model training)(DSRH2026).ipynb
+├── 7-Ensemble+Spatial Smoothing + Self Training (Third Model Training)(DSRH2026).ipynb
+├── 8-Final_Model_Budget Transfer Learning Model (DSRH2026).ipynb
+├── METRIC_LEARNING_APPROACH.md
+├── data/
+│   └── cache/       # Generated when needed
+├── models/          # Generated when needed
+├── results/         # Generated when needed
+└── requirements.txt
 ```
-
-It loads the saved Madrid model, draws `n` labelled pixels per class, continues boosting on them, and returns the adapted model together with its F1 on the held-out pixels. To use another city, build its features with `build_features(...)` and pass its own `X_city` / `y_city`.
-
----
-
-## 🔍 Notes on evaluation
-
-* **Random vs spatial CV.** Neighbouring pixels are highly correlated, so random folds put near-copies of test pixels into training and overestimate performance. We also report **1 km spatial-block CV** (0.647), which is a more honest estimate for unseen areas.
-* **Few-shot protocol.** Same as Notebook 4: `n` pixels per class drawn at random, scored on every other Amsterdam pixel, 10 draws, fixed seed. All methods are compared on identical draws.
-* **Unlabelled data.** Per-city scaling and the city-year anomaly use the target city's *unlabelled* imagery. This is legitimate for deployment: a new city's imagery is always available, only its labels are scarce.
-
----
-
-## 🚀 Next steps
-
-* **Self-training:** pseudo-label confident unlabelled Amsterdam pixels and add them to Stage 2.
-* **Low-data ensemble:** combine continued boosting with calibration/prototype for the 5-shot case.
-* **Spatial smoothing** of predicted probabilities, since age is spatially clustered.
-* **Full 5 × 5 Madrid CV** (`N_REPEATS = 5`) for the final submission table.
-
----
-
-## 📦 Submission checklist
-
-- [x] Stage 1 trained model: `models/stage1_madrid_classifier.txt`
-- [x] Parameterised, seeded transfer code: `adapt_to_city(n)` in Notebook 5
-- [x] Madrid CV mean ± std and confusion matrix: Notebook 5, section 5.8
-- [x] Amsterdam F1 for n = 5 / 25 / 50 / 100 / 200 with error bars: section 5.12
-- [x] F1 vs log2(sample size) plot: section 5.12
-- [ ] PowerPoint presentation (abstract ≤ 150 words on slide 1)
-- [ ] Written justification (≤ 300 words)

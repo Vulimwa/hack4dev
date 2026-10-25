@@ -9,8 +9,9 @@ env/
 .ipynb_checkpoints/
 
 # ── Generated data (rebuilt automatically by the notebooks) ──────────────────
-# Per-city cubes and feature tables cached by Notebook 5 (~350 MB)
-data/cache/
+# Per-city cubes and feature tables cached by the notebooks
+data/cache/*
+!data/cache/.gitkeep
 # Preprocessed arrays written by Notebook 3 (~50 MB)
 data/preprocessed/
 
@@ -20,3 +21,15 @@ data/preprocessed/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ── Model logs ────────────────────────────────────────────────────────────────
+catboost_info/
+
+# Generated models and predictions
+models/*
+!models/.gitkeep
+results/*
+!results/.gitkeep
+
+# Local experiments and temporary notebook-build artifacts
+scratch/
